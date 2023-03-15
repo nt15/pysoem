@@ -90,7 +90,7 @@ if USE_CYTHON:
     from Cython.Build import cythonize
     extensions = cythonize(extensions)
 
-setup(name='pysoem',
+setup(name='pysoem-nt15',
       version=find_version("pysoem", "__init__.py"),
       description='Cython wrapper for the SOEM Library',
       author='Benjamin Partzsch',
