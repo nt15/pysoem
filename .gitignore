@@ -5,12 +5,13 @@ output/
 # Build and package files
 **/*.egg-info/
 **/build/**/*
+_build/
 *.class
 *.py[cod]
 node_modules/
 dist/
 *.jar
-pysoem/pysoem.c
+src/pysoem/pysoem.c
 
 # Log files
 **/log/**/*
@@ -19,6 +20,9 @@ pysoem/pysoem.c
 # IDEs
 .idea/
 .vscode/
+
+# Test settings
+tests/pytest.ini
 
 # Virtual environments
 .venv
@@ -40,3 +44,6 @@ Thumbs.db
 *.flv
 *.mov
 *.wmv
+
+# Local development files
+.env

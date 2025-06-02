@@ -11,17 +11,24 @@
 #
 """PySOEM is a Cython wrapper for the SOEM library."""
 
+#
+# This will result in the creation of the `pysoem.pysoem` module.
+#
+
 cimport cpysoem
 
 import sys
 import logging
 import collections
 import time
+import contextlib
+import warnings
 
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.bytes cimport PyBytes_FromString, PyBytes_FromStringAndSize
 from libc.stdint cimport int8_t, int16_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from libc.string cimport memcpy, memset
+from cpython.ref cimport Py_INCREF, Py_DECREF
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,78 @@ ECT_REG_WD_TIME_PROCESSDATA = 0x0420
 ECT_REG_SM0 = 0x0800
 ECT_REG_SM1 = ECT_REG_SM0 + 0x08
 
+ECT_COEDET_SDO       = 0x01
+ECT_COEDET_SDOINFO   = 0x02
+ECT_COEDET_PDOASSIGN = 0x04
+ECT_COEDET_PDOCONFIG = 0x08
+ECT_COEDET_UPLOAD    = 0x10
+ECT_COEDET_SDOCA     = 0x20
+
+cdef class CdefTimeouts:
+
+    cdef cpysoem.Ttimeouts* _t
+
+    def __cinit__(self):
+        self._t = &cpysoem.soem_timeouts
+
+    @property
+    def ret(self) -> int:
+        return self._t.ret
+
+    @ret.setter
+    def ret(self, value: int):
+        self._t.ret = value
+
+    @property
+    def safe(self) -> int:
+        return self._t.safe
+
+    @safe.setter
+    def safe(self, value: int):
+        self._t.safe = value
+
+    @property
+    def eeprom(self) -> int:
+        return self._t.eeprom
+
+    @eeprom.setter
+    def eeprom(self, value: int):
+        self._t.eeprom = value
+
+    @property
+    def tx_mailbox(self) -> int:
+        return self._t.tx_mailbox
+
+    @tx_mailbox.setter
+    def tx_mailbox(self, value: int):
+        self._t.tx_mailbox = value
+
+    @property
+    def rx_mailbox(self) -> int:
+        return self._t.rx_mailbox
+
+    @rx_mailbox.setter
+    def rx_mailbox(self, value: int):
+        self._t.rx_mailbox = value
+
+    @property
+    def state(self) -> int:
+        return self._t.state
+
+    @state.setter
+    def state(self, value: int):
+        self._t.state = value
+
+cdef class CdefSettings:
+
+    cdef public CdefTimeouts timeouts
+    cdef public cpysoem.boolean always_release_gil
+
+    def __init__(self):
+        self.timeouts = CdefTimeouts()
+        self.always_release_gil = False
+
+settings = CdefSettings()
 
 cpdef enum ec_datatype:
     ECT_BOOLEAN         = 0x0001,
@@ -76,19 +155,32 @@ cdef struct CdefMasterSettings:
 
 def find_adapters():
     """Create a list of available network adapters.
-    
+
     Returns:
         list[Adapter]: Each element of the list has a name an desc attribute.
-    
+
     """
     cdef cpysoem.ec_adaptert* _ec_adapter = cpysoem.ec_find_adapters()
     Adapter = collections.namedtuple('Adapter', ['name', 'desc'])
     adapters = []
     while not _ec_adapter == NULL:
-        adapters.append(Adapter(_ec_adapter.name.decode('utf8'), _ec_adapter.desc.decode('utf8')))
+        adapters.append(Adapter(_ec_adapter.name.decode('utf8'), _ec_adapter.desc))
         _ec_adapter = _ec_adapter.next
     return adapters
-    
+
+
+@contextlib.contextmanager
+def open(ifname):
+    """Context manager function to create a Master object.
+
+    .. versionadded:: 1.1.0
+    """
+    master = Master()
+    master.open(ifname)
+    yield master
+    master.close()
+
+
 def al_status_code_to_string(code):
     """Look up text string that belongs to AL status code.
     
@@ -100,21 +192,30 @@ def al_status_code_to_string(code):
     
     """
     return cpysoem.ec_ALstatuscode2string(code).decode('utf8');
-    
-    
+
+
 class Master(CdefMaster):
     """Representing a logical EtherCAT master device.
-    
+
     For each network interface you can have a Master instance.
 
     Attributes:
         slaves: Gets a list of the slaves found during config_init. The slave instances are of type :class:`CdefSlave`.
         sdo_read_timeout: timeout for SDO read access for all slaves connected
         sdo_write_timeout: timeout for SDO write access for all slaves connected
+        always_release_gil : true to always release the GIL
     """
     pass
-    
-    
+
+
+cdef enum:
+    EC_MAXSLAVE = 200
+    EC_MAXGROUP = 1
+    EC_MAXEEPBITMAP = 128
+    EC_MAXEEPBUF = EC_MAXEEPBITMAP * 32
+    EC_MAXMAPT = 8
+    EC_IOMAPSIZE = 4096
+
 cdef class CdefMaster:
     """Representing a logical EtherCAT master device.
     
@@ -122,13 +223,7 @@ cdef class CdefMaster:
     Master is a typical Python object, with all it's benefits over
     cdef classes. For example you can add new attributes dynamically.
     """
-    DEF EC_MAXSLAVE = 200
-    DEF EC_MAXGROUP = 1
-    DEF EC_MAXEEPBITMAP = 128
-    DEF EC_MAXEEPBUF = EC_MAXEEPBITMAP * 32
-    DEF EC_MAXMAPT = 8
-    DEF EC_IOMAPSIZE = 4096
-    
+
     cdef cpysoem.ec_slavet        _ec_slave[EC_MAXSLAVE]
     cdef int                      _ec_slavecount
     cdef cpysoem.ec_groupt        _ec_group[EC_MAXGROUP]
@@ -151,6 +246,8 @@ cdef class CdefMaster:
     cdef CdefMasterSettings _settings
     cdef public int sdo_read_timeout
     cdef public int sdo_write_timeout
+    cdef public cpysoem.boolean always_release_gil
+    cdef readonly cpysoem.boolean context_initialized
 
     state = property(_get_state, _set_state)
     expected_wkc  = property(_get_expected_wkc)
@@ -180,39 +277,92 @@ cdef class CdefMaster:
         self._ecx_contextt.FOEhook = NULL
         self._ecx_contextt.manualstatechange = 0
         
-        self.slaves = []
+        self.slaves = None
         self.sdo_read_timeout = 700000
         self.sdo_write_timeout = 700000
+        self.always_release_gil = settings.always_release_gil
         self._settings.sdo_read_timeout = &self.sdo_read_timeout
         self._settings.sdo_write_timeout = &self.sdo_write_timeout
+        self.context_initialized = False
         
-    def open(self, ifname):
+    def open(self, ifname, ifname_red=None):
         """Initialize and open network interface.
-        
+
+        On Linux the name of the interface is the same as usd by the system, e.g. ``eth0``, and as displayed by
+        ``ip addr``.
+
+        On Windows the names of the interfaces look like ``\\Device\\NPF_{1D123456-1E12-1C12-12F1-1234E123453B}``.
+        Finding the kind of name that SOEM expects is not straightforward. The most practical way is to use the
+        :func:`~find_adapters` method to find your available interfaces.
+
         Args:
-            ifname(str): Interface name. (see find_adapters)
+            ifname(str): Interface name.
+            ifname_red(:obj:`str`, optional): Interface name of the second network interface card for redundancy.
+                Put to None if not used.
         
         Raises:
             ConnectionError: When the specified interface dose not exist or
                 you have no permission to open the interface
         """
-        ret_val = cpysoem.ecx_init(&self._ecx_contextt, ifname.encode('utf8'))
+        if ifname_red is None:
+            ret_val = cpysoem.ecx_init(&self._ecx_contextt, ifname.encode('utf8'))
+        else:
+            ret_val = cpysoem.ecx_init_redundant(&self._ecx_contextt, &self._ecx_redport, ifname.encode('utf8'), ifname_red.encode('utf8'))
         if ret_val == 0:
             raise ConnectionError('could not open interface {}'.format(ifname))
+
+        self.context_initialized = True
+
+    def check_context_is_initialized(self):
+        if not self.context_initialized:
+            raise NetworkInterfaceNotOpenError("SOEM Network interface is not initialized or has been closed. Call Master.open() first")
+
+    cdef int __config_init_nogil(self, uint8_t usetable):
+        """Enumerate and init all slaves without GIL.
         
-    def config_init(self, usetable=False):
+        Args:
+            usetable (uint8_t): True when using configtable to init slaves, False otherwise.
+        """
+        cdef int ret_val
+        
+        Py_INCREF(self)
+        with nogil:
+            ret_val = cpysoem.ecx_config_init(&self._ecx_contextt, usetable)
+        Py_DECREF(self)
+        
+        return ret_val
+
+    cpdef cpysoem.boolean check_release_gil(self, release_gil):
+        """Checks if the GIL should be released.
+
+        Args:
+            release_gil (boolean): True if the GIL should be released, False otherwise.
+        """
+        if release_gil is not None:
+            return release_gil
+        return self.always_release_gil
+        
+    def config_init(self, usetable=False, *, release_gil=None):
         """Enumerate and init all slaves.
         
         Args:
-            usetable (bool): True when using configtable to init slaves, False otherwise
+            usetable (bool): True when using configtable to init slaves, False otherwise.
+            release_gil (:obj:`bool`, optional): True to initialize the slaves releasing the GIL. Defaults to False.
         
         Returns:
             int: Working counter of slave discover datagram = number of slaves found, -1 when no slave is connected
         """
-        ret_val = cpysoem.ecx_config_init(&self._ecx_contextt, usetable)
+        release_gil = self.check_release_gil(release_gil)
+        self.check_context_is_initialized()
+        self.slaves = []
+        
+        cdef int ret_val
+        if release_gil:
+            ret_val = self.__config_init_nogil(usetable)
+        else:
+            ret_val = cpysoem.ecx_config_init(&self._ecx_contextt, usetable)
+
         if ret_val > 0:
-          # sanity check
-          assert(ret_val==self._ec_slavecount)        
           for i in range(self._ec_slavecount):
               self.slaves.append(self._get_slave(i))
         return ret_val
@@ -223,6 +373,7 @@ cdef class CdefMaster:
         Returns:
             int: IO map size (sum of all PDO in an out data)
         """
+        self.check_context_is_initialized()
         cdef _CallbackData cd
         # ecx_config_map_group returns the actual IO map size (not an error value), expect the value to be less than EC_IOMAPSIZE
         ret_val = cpysoem.ecx_config_map_group(&self._ecx_contextt, &self.io_map, 0)
@@ -230,10 +381,8 @@ cdef class CdefMaster:
         for slave in self.slaves:
             cd = slave._cd
             if cd.exc_raised:
-                raise cd.exc_info[0],cd.exc_info[1],cd.exc_info[2]
+                raise cd.exc_info[0], cd.exc_info[1], cd.exc_info[2]
         logger.debug('io map size: {}'.format(ret_val))
-        # sanity check
-        assert(ret_val<=EC_IOMAPSIZE)
         # raise an exception if one or more mailbox errors occured within ecx_config_map_group call
         error_list = self._collect_mailbox_errors()
         if len(error_list) > 0:
@@ -246,6 +395,7 @@ cdef class CdefMaster:
         Returns:
             int: IO map size (sum of all PDO in an out data)
         """
+        self.check_context_is_initialized()
         cdef _CallbackData cd
         # ecx_config_map_group returns the actual IO map size (not an error value), expect the value to be less than EC_IOMAPSIZE
         ret_val = cpysoem.ecx_config_overlap_map_group(&self._ecx_contextt, &self.io_map, 0)
@@ -255,8 +405,6 @@ cdef class CdefMaster:
             if cd.exc_raised:
                 raise cd.exc_info[0],cd.exc_info[1],cd.exc_info[2]
         logger.debug('io map size: {}'.format(ret_val))
-        # sanity check
-        assert(ret_val<=EC_IOMAPSIZE)
         # raise an exception if one or more mailbox errors occured within ecx_config_overlap_map_group call
         error_list = self._collect_mailbox_errors()
         if len(error_list) > 0:
@@ -291,6 +439,7 @@ cdef class CdefMaster:
         Returns:
             bool: if slaves are found with DC
         """
+        self.check_context_is_initialized()
         return cpysoem.ecx_configdc(&self._ecx_contextt)
         
     def close(self):
@@ -298,14 +447,16 @@ cdef class CdefMaster:
         
         """
         # ecx_close returns nothing
+        self.context_initialized = False
         cpysoem.ecx_close(&self._ecx_contextt)
-        
+
     def read_state(self):
         """Read all slaves states.
         
         Returns:
             int: lowest state found
         """
+        self.check_context_is_initialized()
         return cpysoem.ecx_readstate(&self._ecx_contextt)
         
     def write_state(self):
@@ -316,6 +467,7 @@ cdef class CdefMaster:
         Returns:
             int: Working counter or EC_NOFRAME
         """
+        self.check_context_is_initialized()
         return cpysoem.ecx_writestate(&self._ecx_contextt, 0)
         
     def state_check(self, int expected_state, timeout=50000):
@@ -331,9 +483,21 @@ cdef class CdefMaster:
         Returns:
             int: Requested state, or found state after timeout
         """
+        self.check_context_is_initialized()
         return cpysoem.ecx_statecheck(&self._ecx_contextt, 0, expected_state, timeout)
+
+    cdef int __send_processdata_nogil(self):
+        """Transmit processdata to slaves without GIL."""
+        cdef int result
         
-    def send_processdata(self):
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_send_processdata(&self._ecx_contextt)
+        Py_DECREF(self)
+        
+        return result
+        
+    def send_processdata(self, *, release_gil=None):
         """Transmit processdata to slaves.
         
         Uses LRW, or LRD/LWR if LRW is not allowed (blockLRW).
@@ -343,10 +507,17 @@ cdef class CdefMaster:
         In contrast to the base LRW function this function is non-blocking.
         If the processdata does not fit in one datagram, multiple are used.
         In order to recombine the slave response, a stack is used.
+
+        Args:
+            release_gil (:obj:`bool`, optional): True to transmit processdata releasing the GIL. Defaults to False.
         
         Returns:
             int: >0 if processdata is transmitted, might only by 0 if config map is not configured properly
         """
+        release_gil = self.check_release_gil(release_gil)
+        self.check_context_is_initialized()
+        if release_gil:
+            return self.__send_processdata_nogil()
         return cpysoem.ecx_send_processdata(&self._ecx_contextt)
 
     def send_overlap_processdata(self):
@@ -355,9 +526,25 @@ cdef class CdefMaster:
         Returns:
             int: >0 if processdata is transmitted, might only by 0 if config map is not configured properly
         """
+        self.check_context_is_initialized()
         return cpysoem.ecx_send_overlap_processdata(&self._ecx_contextt)
+
+    cdef int __receive_processdata_nogil(self, int timeout):
+        """Receive processdata from slaves without GIL.
+        
+        Args:
+            timeout (int): Timeout in us.
+        """
+        cdef int result
+        
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_receive_processdata(&self._ecx_contextt, timeout)
+        Py_DECREF(self)
+        
+        return result
     
-    def receive_processdata(self, timeout=2000):
+    def receive_processdata(self, timeout=2000, *, release_gil=None):
         """Receive processdata from slaves.
 
         Second part from send_processdata().
@@ -366,9 +553,14 @@ cdef class CdefMaster:
 
         Args:
             timeout (int): Timeout in us.
+            release_gil (:obj:`bool`, optional): True to receive processdata releasing the GIL. Defaults to False.
         Returns
             int: Working Counter
         """
+        release_gil = self.check_release_gil(release_gil)
+        self.check_context_is_initialized()
+        if release_gil:
+            return self.__receive_processdata_nogil(timeout)
         return cpysoem.ecx_receive_processdata(&self._ecx_contextt, timeout)
     
     def _get_slave(self, int pos):
@@ -377,6 +569,7 @@ cdef class CdefMaster:
         if pos >= self._ec_slavecount:
             raise IndexError('requested slave device is not available')
         ethercat_slave = CdefSlave(pos+1)
+        ethercat_slave._master = self
         ethercat_slave._ecx_contextt = &self._ecx_contextt
         ethercat_slave._ec_slave = &self._ec_slave[pos+1] # +1 as _ec_slave[0] is reserved
         ethercat_slave._the_masters_settings = &self._settings
@@ -438,7 +631,7 @@ class SdoError(Exception):
         self.desc = desc
 
 class Emergency(Exception):
-    """Sdo read or write abort
+    """Emergency message.
 
     Attributes:
         slave_pos (int): position of the slave
@@ -456,6 +649,11 @@ class Emergency(Exception):
         self.b1 = b1
         self.w1 = w1
         self.w2 = w2
+
+    def __str__(self):
+        b1w1w2_bytes = bytes([self.b1]) + self.w1.to_bytes(length=2, byteorder='little') + self.w2.to_bytes(length=2, byteorder='little')
+        b1w1w2_str = ','.join(format(x, '02x') for x in b1w1w2_bytes)
+        return f'Slave {self.slave_pos}:  {self.error_code:04x}, {self.error_reg:02x}, ({b1w1w2_str})'
 
 
 class SdoInfoError(Exception):
@@ -537,14 +735,21 @@ class WkcError(Exception):
 
     Attributes:
         message (str): error message
+        wkc (int): Working counter
     """
 
-    def __init__(self, message=None):
+    def __init__(self, message=None, wkc=None):
         self.message = message
+        self.wkc = wkc
+
+class NetworkInterfaceNotOpenError(Exception):
+    """Error when a master or slave method is used and the context has not been initialized."""
+    pass
 
 
 cdef class _CallbackData:
     cdef:
+        object slave
         object func
         object exc_raised
         object exc_info
@@ -563,6 +768,11 @@ class SiiOffset:
     MBX_PROTO = 0x001C
 
 
+cdef enum:
+    EC_TIMEOUTRXM = 700000
+    STATIC_SDO_READ_BUFFER_SIZE = 256
+
+
 cdef class CdefSlave:
     """Represents a slave device
 
@@ -570,22 +780,21 @@ cdef class CdefSlave:
     by a Master instance on a successful config_init(). They then can be 
     obtained by slaves list
     """
-    
-    DEF EC_TIMEOUTRXM = 700000
-    DEF STATIC_SDO_READ_BUFFER_SIZE = 256
-    
+    cdef readonly CdefMaster _master
     cdef cpysoem.ecx_contextt* _ecx_contextt
     cdef cpysoem.ec_slavet* _ec_slave
     cdef CdefMasterSettings* _the_masters_settings
-    cdef _pos # keep in mind that first slave has pos 1  
+    cdef int _pos # keep in mind that first slave has pos 1  
     cdef public _CallbackData _cd
     cdef cpysoem.ec_ODlistt _ex_odlist
+    cdef public _emcy_callbacks
 
     name = property(_get_name)
     man = property(_get_eep_man)
     id = property(_get_eep_id)
     rev = property(_get_eep_rev)
     config_func = property(_get_PO2SOconfig, _set_PO2SOconfig)
+    setup_func = property(_get_PO2SOconfigEx, _set_PO2SOconfigEx)
     state = property(_get_state, _set_state)
     input = property(_get_input)
     output = property(_get_output, _set_output)
@@ -596,6 +805,8 @@ cdef class CdefSlave:
     def __init__(self, pos):
         self._pos = pos
         self._cd = _CallbackData()
+        self._cd.slave = self
+        self._emcy_callbacks = []
 
     def dc_sync(self, act, sync0_cycle_time, sync0_shift_time=0, sync1_cycle_time=None):
         """Activate or deactivate SYNC pulses at the slave.
@@ -607,13 +818,33 @@ cdef class CdefSlave:
             sync1_cycle_time (int): Optional cycltime for SYNC1 in ns. This time is a delta time in relation to SYNC0.
                                     If CylcTime1 = 0 then SYNC1 fires at the same time as SYNC0.
         """
+        self._master.check_context_is_initialized()
     
         if sync1_cycle_time is None:
             cpysoem.ecx_dcsync0(self._ecx_contextt, self._pos, act, sync0_cycle_time, sync0_shift_time)
         else:
             cpysoem.ecx_dcsync01(self._ecx_contextt, self._pos, act, sync0_cycle_time, sync1_cycle_time, sync0_shift_time) 
 
-    def sdo_read(self, index, uint8_t subindex, int size=0, ca=False):
+    cdef int __sdo_read_nogil(self, uint16_t index, uint8_t subindex, int8_t ca, int size_inout, unsigned char* pbuf):
+        """Read a CoE object without GIL.
+        
+        Args:
+            index (int): Index of the object.
+            subindex (int): Subindex of the object.
+            ca (:obj:`bool`): complete access.
+            size_inout (int): size in bytes of parameter buffer.
+            pbuf (unsigned char*): pointer to parameter buffer.
+        """
+        cdef int result
+        
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_SDOread(self._ecx_contextt, self._pos, index, subindex, ca, &size_inout, pbuf, self._the_masters_settings.sdo_read_timeout[0])
+        Py_DECREF(self)
+        
+        return result
+
+    def sdo_read(self, index, uint8_t subindex, int size=0, ca=False, *, release_gil=None):
         """Read a CoE object.
 
         When leaving out the size parameter, objects up to 256 bytes can be read.
@@ -623,7 +854,8 @@ cdef class CdefSlave:
             index (int): Index of the object.
             subindex (int): Subindex of the object.
             size (:obj:`int`, optional): The size of the reading buffer.
-            ca (:obj:`bool`, optional): complete access
+            ca (:obj:`bool`, optional): complete access.
+            release_gil (:obj:`bool`, optional): True to read a CoE object releasing the GIL. Defaults to False.
 
         Returns:
             bytes: The content of the sdo object.
@@ -632,9 +864,13 @@ cdef class CdefSlave:
             SdoError: if write fails, the exception includes the SDO abort code  
             MailboxError: on errors in the mailbox protocol
             PacketError: on packet level error
+            WkcError: if working counter is not higher than 0, the exception includes the working counter
         """
+        release_gil = self._master.check_release_gil(release_gil=release_gil)
         if self._ecx_contextt == NULL:
             raise UnboundLocalError()
+
+        self._master.check_context_is_initialized()
         
         cdef unsigned char* pbuf
         cdef uint8_t std_buffer[STATIC_SDO_READ_BUFFER_SIZE]
@@ -649,43 +885,91 @@ cdef class CdefSlave:
         if pbuf == NULL:
             raise MemoryError()
         
-        cdef int result = cpysoem.ecx_SDOread(self._ecx_contextt, self._pos, index, subindex, ca,
+        cdef int result
+        if release_gil:
+            result = self.__sdo_read_nogil(index, subindex, ca, size_inout, pbuf)
+        else:
+            result = cpysoem.ecx_SDOread(self._ecx_contextt, self._pos, index, subindex, ca,
                                               &size_inout, pbuf, self._the_masters_settings.sdo_read_timeout[0])
 
         cdef cpysoem.ec_errort err
-        if cpysoem.ecx_poperror(self._ecx_contextt, &err):
-            if pbuf != std_buffer:
-                PyMem_Free(pbuf)
+        while cpysoem.ecx_poperror(self._ecx_contextt, &err):
             assert err.Slave == self._pos
-            self._raise_exception(&err)
+
+            if (err.Etype == cpysoem.EC_ERR_TYPE_EMERGENCY) and (len(self._emcy_callbacks) > 0):
+                self._on_emergency(&err)
+            else:
+                if pbuf != std_buffer:
+                    PyMem_Free(pbuf)
+                self._raise_exception(&err)
+
+        if not result > 0:
+            if pbuf != std_buffer:
+                    PyMem_Free(pbuf)
+            raise WkcError(wkc=result)
 
         try:
             return PyBytes_FromStringAndSize(<char*>pbuf, size_inout)
         finally:
             if pbuf != std_buffer:
                 PyMem_Free(pbuf)
+
+    cdef int __sdo_write_nogil(self, uint16_t index, uint8_t subindex, int8_t ca, int size, bytes data):
+        """Write to a CoE object without GIL.
+        
+        Args:
+            index (int): Index of the object.
+            subindex (int): Subindex of the object.
+            ca (:obj:`bool`): complete access.
+            size (int): size of the data to be written.
+            data (bytes): data to be written to the object.
+        """
+        cdef int result
+        cdef unsigned char* c_data = <unsigned char*> data
+
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_SDOwrite(self._ecx_contextt, self._pos, index, subindex, ca, size, c_data, self._the_masters_settings.sdo_write_timeout[0])
+        Py_DECREF(self)
+        
+        return result
             
-    def sdo_write(self, index, uint8_t subindex, bytes data, ca=False):
+    def sdo_write(self, index, uint8_t subindex, bytes data, ca=False, *, release_gil=None):
         """Write to a CoE object.
         
         Args:
             index (int): Index of the object.
             subindex (int): Subindex of the object.
-            data (bytes): data to be written to the object
-            ca (:obj:`bool`, optional): complete access
+            data (bytes): data to be written to the object.
+            ca (:obj:`bool`, optional): complete access.
+            release_gil (:obj:`bool`, optional): True to write to a CoE object releasing the GIL. Defaults to False.
 
         Raises:
             SdoError: if write fails, the exception includes the SDO abort code  
             MailboxError: on errors in the mailbox protocol
             PacketError: on packet level error
-        """          
+            WkcError: if working counter is not higher than 0, the exception includes the working counter
+        """
+        release_gil = self._master.check_release_gil(release_gil=release_gil)
+        self._master.check_context_is_initialized()
+
         cdef int size = len(data)
-        cdef int result = cpysoem.ecx_SDOwrite(self._ecx_contextt, self._pos, index, subindex, ca,
+        cdef int result
+        if release_gil:
+            result = self.__sdo_write_nogil(index, subindex, ca, size, data)
+        else:
+            result = cpysoem.ecx_SDOwrite(self._ecx_contextt, self._pos, index, subindex, ca,
                                                size, <unsigned char*>data, self._the_masters_settings.sdo_write_timeout[0])
         
         cdef cpysoem.ec_errort err
-        if cpysoem.ecx_poperror(self._ecx_contextt, &err):
-            self._raise_exception(&err)
+        while(cpysoem.ecx_poperror(self._ecx_contextt, &err)):
+            if (err.Etype == cpysoem.EC_ERR_TYPE_EMERGENCY) and (len(self._emcy_callbacks) > 0):
+                self._on_emergency(&err)
+            else:
+                self._raise_exception(&err)
+
+        if not result > 0:
+            raise WkcError(wkc=result)
 
     def mbx_receive(self):
         """Read out the slaves out mailbox - to check for emergency messages.
@@ -696,13 +980,18 @@ cdef class CdefSlave:
         :rtype: int
         :raises Emergency: if an emergency message was received
         """
+        self._master.check_context_is_initialized()
+
         cdef cpysoem.ec_mbxbuft buf
         cpysoem.ec_clearmbx(&buf)
         cdef int wkt = cpysoem.ecx_mbxreceive(self._ecx_contextt, self._pos, &buf, 0)
 
         cdef cpysoem.ec_errort err
         if cpysoem.ecx_poperror(self._ecx_contextt, &err):
-            self._raise_exception(&err)
+            if (err.Etype == cpysoem.EC_ERR_TYPE_EMERGENCY) and (len(self._emcy_callbacks) > 0):
+                self._on_emergency(&err)
+            else:
+                self._raise_exception(&err)
 
         return wkt
         
@@ -711,10 +1000,12 @@ cdef class CdefSlave:
 
         Note: The function does not check if the actual state is changed.
         """
+        self._master.check_context_is_initialized()
         return cpysoem.ecx_writestate(self._ecx_contextt, self._pos)
         
     def state_check(self, int expected_state, timeout=2000):
         """Wait for the slave to reach the state that was requested."""
+        self._master.check_context_is_initialized()
         return cpysoem.ecx_statecheck(self._ecx_contextt, self._pos, expected_state, timeout)
         
     def reconfig(self, timeout=500):
@@ -724,6 +1015,7 @@ cdef class CdefSlave:
         :return: Slave state
         :rtype: int
         """
+        self._master.check_context_is_initialized()
         return cpysoem.ecx_reconfig_slave(self._ecx_contextt, self._pos, timeout)
         
     def recover(self, timeout=500):
@@ -733,6 +1025,7 @@ cdef class CdefSlave:
         :return: >0 if successful
         :rtype: int
         """
+        self._master.check_context_is_initialized()
         return cpysoem.ecx_recover_slave(self._ecx_contextt, self._pos, timeout)
         
     def eeprom_read(self, int word_address, timeout=20000):
@@ -747,6 +1040,7 @@ cdef class CdefSlave:
         Returns:
             bytes: EEPROM data
         """
+        self._master.check_context_is_initialized()
         cdef uint32_t tmp = cpysoem.ecx_readeeprom(self._ecx_contextt, self._pos, word_address, timeout)
         return PyBytes_FromStringAndSize(<char*>&tmp, 4)
         
@@ -764,6 +1058,7 @@ cdef class CdefSlave:
             EepromError: if write fails
             AttributeError: if data size is not 2
         """
+        self._master.check_context_is_initialized()
         if not len(data) == 2:
             raise AttributeError()
         cdef uint16_t tmp
@@ -772,7 +1067,29 @@ cdef class CdefSlave:
         if not result > 0:
             raise EepromError('EEPROM write error')
 
-    def foe_write(self, filename, password, bytes data, timeout = 200000):
+    cdef int __foe_write_nogil(self, str filename, uint32_t password, int size, bytes data, int timeout):
+        """Write given data to device using FoE without GIL.
+
+        Args:
+            filename (string): name of the target file.
+            password (uint32_t): password for the target file, accepted range: 0 to 2^32 - 1.
+            size (int): size of the file buffer.
+            data (bytes): data.
+            timeout (int): Timeout value in us.
+        """
+        cdef int result
+        cdef bytes encoded_filename = filename.encode('utf-8')
+        cdef char* c_filename = encoded_filename
+        cdef unsigned char* c_data = <unsigned char*> data
+
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_FOEwrite(self._ecx_contextt, self._pos, c_filename, password, size, c_data, timeout)
+        Py_DECREF(self)
+        
+        return result
+
+    def foe_write(self, filename, password, bytes data, timeout = 200000, *, release_gil=None):
         """ Write given data to device using FoE
 
         Args:
@@ -780,13 +1097,22 @@ cdef class CdefSlave:
             password (int): password for the target file, accepted range: 0 to 2^32 - 1
             data (bytes): data
             timeout (int): Timeout value in us
+            release_gil (:obj:`bool`, optional): True to FoE write releasing the GIL. Defaults to False.
         """
+        release_gil = self._master.check_release_gil(release_gil=release_gil)
         # error handling
         if self._ecx_contextt == NULL:
             raise UnboundLocalError()
 
+        self._master.check_context_is_initialized()
+
+        cdef int result
         cdef int size = len(data)
-        cdef int result = cpysoem.ecx_FOEwrite(self._ecx_contextt, self._pos, filename.encode('utf8'), password, size, <unsigned char*>data, timeout)
+        
+        if release_gil:
+            result = self.__foe_write_nogil(filename, password, size, data, timeout)
+        else:
+            result = cpysoem.ecx_FOEwrite(self._ecx_contextt, self._pos, filename.encode('utf8'), password, size, <unsigned char*>data, timeout)
         
         # error handling
         cdef cpysoem.ec_errort err
@@ -796,17 +1122,42 @@ cdef class CdefSlave:
 
         return result
 
-    def foe_read(self, filename, password, size, timeout = 200000):
-        """ Read given filename from device using FoE
+    cdef int __foe_read_nogil(self, str filename, uint32_t password, int size_inout, unsigned char* pbuf, int timeout):
+        """Read given filename from device using FoE without GIL.
+
+        Args:
+            filename (string): name of the target file.
+            password (int): password for target file
+            size_inout (int): size in bytes of file buffer.
+            pbuf (unsigned char*): data.
+            timeout (int): Timeout value in us.
+        """
+        cdef int result
+        cdef bytes encoded_filename = filename.encode('utf-8')
+        cdef char* c_filename = encoded_filename
+
+        Py_INCREF(self)
+        with nogil:
+            result = cpysoem.ecx_FOEread(self._ecx_contextt, self._pos, c_filename, password, &size_inout, pbuf, timeout)
+        Py_DECREF(self)
+        
+        return result
+
+    def foe_read(self, filename, password, size, timeout = 200000, *, release_gil=None):
+        """Read given filename from device using FoE
 
         Args:
             filename (string): name of the target file
             password (int): password for target file
             size (int): maximum file size
             timeout (int): Timeout value in us
+            release_gil (:obj:`bool`, optional): True to FoE write releasing the GIL. Defaults to False.
         """
+        release_gil = self._master.check_release_gil(release_gil=release_gil)
         if self._ecx_contextt == NULL:
             raise UnboundLocalError()
+
+        self._master.check_context_is_initialized()
 
         # prepare call of c function
         cdef unsigned char* pbuf
@@ -814,7 +1165,11 @@ cdef class CdefSlave:
         pbuf = <unsigned char*>PyMem_Malloc((size)*sizeof(unsigned char))
         size_inout = size
 
-        cdef int result = cpysoem.ecx_FOEread(self._ecx_contextt, self._pos, filename.encode('utf8'), password, &size_inout, pbuf, timeout)
+        cdef int result
+        if release_gil:
+            result = self.__foe_read_nogil(filename, password, size_inout, pbuf, timeout)
+        else:
+            result = cpysoem.ecx_FOEread(self._ecx_contextt, self._pos, filename.encode('utf8'), password, &size_inout, pbuf, timeout)
 
         # error handling
         cdef cpysoem.ec_errort err
@@ -840,6 +1195,8 @@ cdef class CdefSlave:
 
         .. versionadded:: 1.0.6
         """
+        self._master.check_context_is_initialized()
+
         fpwr_timeout_us = 4000
         if mailbox == 'out':
             # Clear the slaves mailbox configuration.
@@ -878,6 +1235,8 @@ cdef class CdefSlave:
 
         .. versionadded:: 1.0.6
         """
+        self._master.check_context_is_initialized()
+
         fprd_fpwr_timeout_us = 4000
         wd_type_to_reg_map = {
             'pdi': ECT_REG_WD_TIME_PDI,
@@ -897,6 +1256,44 @@ cdef class CdefSlave:
         self._fpwr(wd_type_to_reg_map[wd_type],
                    wd_time_reg.to_bytes(2, byteorder='little', signed=False),
                    fprd_fpwr_timeout_us)
+
+    def add_emergency_callback(self, callback):
+        """Get notified on EMCY messages from this slave.
+
+        :param callback:
+            Callable which must take one argument of an
+            :class:`~Emergency` instance.
+        """
+        self._master.check_context_is_initialized()
+        self._emcy_callbacks.append(callback)
+
+    cdef _on_emergency(self, cpysoem.ec_errort* emcy):
+        """Notify all emergency callbacks that an emergency message
+        was received.
+
+        :param emcy: Emergency object.
+        """
+        emergency_msg = Emergency(emcy.Slave, 
+                               emcy.ErrorCode,
+                               emcy.ErrorReg,
+                               emcy.b1,
+                               emcy.w1,
+                               emcy.w2)
+        for callback in self._emcy_callbacks:
+            callback(emergency_msg)
+
+    def _disable_complete_access(self):
+        """Helper function that stops config_map() from using "complete access" for SDO requests for this device.
+
+        This should only be used if your device has issues handling complete access requests but the CoE details of the
+        SII tells that SDO complete access is supported by the device. If you need this function something is wrong
+        with your device and you should contact the manufacturer about this issue.
+
+        .. warning:: This is experimental.
+
+        .. versionadded:: 1.1.3
+        """
+        self._ec_slave.CoEdetails &= ~ECT_COEDET_SDOCA
 
     def _fprd(self, int address, int size, timeout_us=2000):
         """Send and receive of the FPRD cmd primitive (Configured Address Physical Read)."""
@@ -925,6 +1322,7 @@ cdef class CdefSlave:
                            err.AbortCode,
                            cpysoem.ec_sdoerror2string(err.AbortCode).decode('utf8'))
         elif err.Etype == cpysoem.EC_ERR_TYPE_EMERGENCY:
+            warnings.warn('This way of catching emergency messages is deprecated, use the add_emergency_callback() function!', FutureWarning)
             raise Emergency(err.Slave,
                             err.ErrorCode,
                             err.ErrorReg,
@@ -958,9 +1356,25 @@ cdef class CdefSlave:
         return self._ec_slave.eep_rev
         
     def _get_PO2SOconfig(self):
-        """Slaves callback function that is called during config_init.
+        """Slaves callback function that is called during config_map.
         
         When the state changes from Pre-Operational state to Operational state."""
+        if not self._ec_slave.user:
+            return None
+
+        return <object>self._ec_slave.user
+
+    def _get_PO2SOconfigEx(self):
+        """Alternative callback function that is called during config_map.
+
+        More precisely the function is called during the transition from Pre-Operational to Safe-Operational state.
+        Use this instead of the config_func. The difference is that the callbacks signature is fn(CdefSlave: slave).
+
+        .. versionadded:: 1.1.0
+        """
+        if not self._ec_slave.user:
+            return None
+
         return <object>self._ec_slave.user
     
     def _set_PO2SOconfig(self, value):
@@ -970,6 +1384,14 @@ cdef class CdefSlave:
             self._ec_slave.PO2SOconfig = NULL
         else:
             self._ec_slave.PO2SOconfig = _xPO2SOconfig
+
+    def _set_PO2SOconfigEx(self, value):
+        self._cd.func = value
+        self._ec_slave.user = <void*>self._cd
+        if value is None:
+            self._ec_slave.PO2SOconfig = NULL
+        else:
+            self._ec_slave.PO2SOconfig = _xPO2SOconfigEx
 
     def _get_state(self):
         """Request a new state.
@@ -1078,7 +1500,7 @@ cdef class CdefCoeObject:
         
     def _get_name(self):
         self._read_description()
-        return (<bytes>self._ex_odlist.Name[self._item]).decode('utf8')
+        return self._ex_odlist.Name[self._item]
     
     def _get_entries(self):
         self._read_description()
@@ -1125,7 +1547,7 @@ cdef class CdefCoeObjectEntry:
         self._item = item
         
     def _get_name(self):            
-        return (<bytes>self._ex_oelist.Name[self._item]).decode('utf8')
+        return self._ex_oelist.Name[self._item]
 
     def _get_data_type(self):
         return self._ex_oelist.DataType[self._item]
@@ -1137,8 +1559,7 @@ cdef class CdefCoeObjectEntry:
         return self._ex_oelist.ObjAccess[self._item]
         
 
-cdef int _xPO2SOconfig(cpysoem.uint16 slave, void* user):
-    assert(slave>0)   
+cdef int _xPO2SOconfig(cpysoem.uint16 slave, void* user) noexcept:
     cdef _CallbackData cd
     cd = <object>user
     cd.exc_raised = False
@@ -1146,4 +1567,15 @@ cdef int _xPO2SOconfig(cpysoem.uint16 slave, void* user):
         (<object>cd.func)(slave-1)
     except:
         cd.exc_raised = True
-        cd.exc_info=sys.exc_info()
+        cd.exc_info = sys.exc_info()
+
+
+cdef int _xPO2SOconfigEx(cpysoem.uint16 slave, void* user) noexcept:
+    cdef _CallbackData cd
+    cd = <object>user
+    cd.exc_raised = False
+    try:
+        (<object>cd.func)(cd.slave)
+    except:
+        cd.exc_raised = True
+        cd.exc_info = sys.exc_info()

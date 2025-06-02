@@ -34,8 +34,9 @@ class Device:
 
 
 class BasicExample:
-    def __init__(self, ifname):
+    def __init__(self, ifname, ifname_red):
         self._ifname = ifname
+        self._ifname_red = ifname_red
         self._pd_thread_stop_event = threading.Event()
         self._ch_thread_stop_event = threading.Event()
         self._actual_wkc = 0
@@ -78,8 +79,6 @@ class BasicExample:
             "Bx" + "".join(["H" for _ in range(len(rx_map_obj))]), len(rx_map_obj), *rx_map_obj)
         slave.sdo_write(index=0x1C12, subindex=0, data=rx_map_obj_bytes, ca=True)
 
-        slave.dc_sync(act=True, sync0_cycle_time=10_000_000)  # time is given in ns -> 10,000,000ns = 10ms
-
     def _processdata_thread(self):
         """Background thread that sends and receives the process-data frame in a 10ms interval."""
         while not self._pd_thread_stop_event.is_set():
@@ -119,7 +118,7 @@ class BasicExample:
             print("stopped")
 
     def run(self):
-        self._master.open(self._ifname)
+        self._master.open(self._ifname, self._ifname_red)
 
         if not self._master.config_init() > 0:
             self._master.close()
@@ -138,6 +137,8 @@ class BasicExample:
         if self._master.state_check(pysoem.SAFEOP_STATE, timeout=50_000) != pysoem.SAFEOP_STATE:
             self._master.close()
             raise BasicExampleError("not all slaves reached SAFEOP state")
+        
+        slave.dc_sync(act=True, sync0_cycle_time=10_000_000)  # time is given in ns -> 10,000,000ns = 10ms
 
         self._master.state = pysoem.OP_STATE
 
@@ -226,10 +227,11 @@ class BasicExampleError(Exception):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Example code for PySOEM.")
     parser.add_argument("iface", type=str, help="ID of the network adapter used.")
+    parser.add_argument("ifname_red", nargs="?", type=str, help="Optional: ID of the second network adapter used (for redundancy).")
     args = parser.parse_args()
 
     try:
-        BasicExample(args.iface).run()
+        BasicExample(args.iface, args.ifname_red).run()
     except BasicExampleError as err:
         print(f"{os.path.basename(__file__)} failed: {err.message}")
         sys.exit(1)

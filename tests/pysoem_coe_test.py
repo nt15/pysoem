@@ -4,6 +4,19 @@ import pytest
 import pysoem
 
 
+class EmergencyConsumer:
+    def __init__(self):
+        self._pending_emcy_msg = []
+
+    def on_emergency(self, emcy):
+        self._pending_emcy_msg.append(emcy)
+
+    def pop_emcy_msg(self):
+        msg = self._pending_emcy_msg[-1]
+        self._pending_emcy_msg = self._pending_emcy_msg[:-2]
+        return msg
+
+
 @pytest.fixture
 def el1259(pysoem_env):
     pysoem_env.config_init()
@@ -126,7 +139,7 @@ def test_sdo_info_var(el1259):
 
     obj_0x1000 = get_obj_from_od(el1259.od, 0x1000)
 
-    assert 'Device type' == obj_0x1000.name
+    assert b'Device type' == obj_0x1000.name
     assert obj_0x1000.object_code == 7
     assert obj_0x1000.data_type == pysoem.ECT_UNSIGNED32
     assert obj_0x1000.bit_length == 32
@@ -137,18 +150,18 @@ def test_sdo_info_rec(el1259):
 
     obj_0x1018 = get_obj_from_od(el1259.od, 0x1018)
 
-    assert 'Identity' == obj_0x1018.name
+    assert b'Identity' == obj_0x1018.name
     assert obj_0x1018.object_code == 9
 
     entry_vendor_id = obj_0x1018.entries[1]
-    assert entry_vendor_id.name == 'Vendor ID'
+    assert entry_vendor_id.name == b'Vendor ID'
     assert entry_vendor_id.data_type == pysoem.ECT_UNSIGNED32
     assert entry_vendor_id.bit_length == 32
     assert entry_vendor_id.obj_access == 0x0007
 
 
 @pytest.mark.parametrize('mode', ['mbx_receive', 'sdo_read'])
-def test_coe_emergency(xmc_device, mode):
+def test_coe_emergency_legacy(xmc_device, mode):
     """Test if CoE Emergency errors can be received.
 
     The XMC device throws an CoE Emergency after writing to 0x8001:01.
@@ -158,18 +171,57 @@ def test_coe_emergency(xmc_device, mode):
     # But this write should trigger an emergency message in the device, ..
     xmc_device.sdo_write(0x8001, 1, bytes(4))
     # .. so ether an mbx_receive() or sdo_read() will reveal the emergency message.
-    with pytest.raises(pysoem.Emergency) as excinfo:
-        if mode == 'mbx_receive':
-            xmc_device.mbx_receive()
-        elif mode == 'sdo_read':
-            _ = xmc_device.sdo_read(0x1018, 1)
-    assert excinfo.value.error_code == 0xFFFE
-    assert excinfo.value.error_reg == 0x00
-    assert excinfo.value.b1 == 0xAA
-    assert excinfo.value.w1 == 0x5555
-    assert excinfo.value.w2 == 0x5555
+    with pytest.warns(FutureWarning) as record:
+        with pytest.raises(pysoem.Emergency) as excinfo:
+            if mode == 'mbx_receive':
+                xmc_device.mbx_receive()
+            elif mode == 'sdo_read':
+                _ = xmc_device.sdo_read(0x1018, 1)
+        assert excinfo.value.slave_pos == 1
+        assert excinfo.value.error_code == 0xFFFE
+        assert excinfo.value.error_reg == 0x00
+        assert excinfo.value.b1 == 0xAA
+        assert excinfo.value.w1 == 0x5150
+        assert excinfo.value.w2 == 0x5352
+        assert str(excinfo.value) == 'Slave 1:  fffe, 00, (aa,50,51,52,53)'
+    assert len(record) == 1
+    assert str(record[0].message) == 'This way of catching emergency messages is deprecated, use the add_emergency_callback() function!'
     # check if SDO communication is still working
     for i in range(10):
         _ = xmc_device.sdo_read(0x1018, 1)
     # again mbx_receive() should not raise any further exception
     xmc_device.mbx_receive()
+
+
+@pytest.mark.parametrize('mode', ['mbx_receive', 'sdo_read'])
+def test_coe_emergency_new(xmc_device, mode):
+    emcy_consumer = EmergencyConsumer()
+    xmc_device.add_emergency_callback(emcy_consumer.on_emergency)
+    # no exception should be raise by mbx_receive() now.
+    xmc_device.mbx_receive()
+    assert len(emcy_consumer._pending_emcy_msg) == 0
+    # But this write should trigger an emergency message in the device, ..
+    xmc_device.sdo_write(0x8001, 1, bytes(4))
+    assert len(emcy_consumer._pending_emcy_msg) == 0
+    # .. so ether an mbx_receive() or sdo_read() will reveal the emergency message.
+    if mode == 'mbx_receive':
+        xmc_device.mbx_receive()
+    elif mode == 'sdo_read':
+        _ = xmc_device.sdo_read(0x1018, 1)
+    assert len(emcy_consumer._pending_emcy_msg) == 1
+    emcy_msg = emcy_consumer.pop_emcy_msg()
+    assert emcy_msg.slave_pos == 1
+    assert emcy_msg.error_code == 0xFFFE
+    assert emcy_msg.error_reg == 0x00
+    assert emcy_msg.b1 == 0xAA
+    assert emcy_msg.w1 == 0x5150
+    assert emcy_msg.w2 == 0x5352
+    assert len(emcy_consumer._pending_emcy_msg) == 0
+    assert str(emcy_msg) == 'Slave 1:  fffe, 00, (aa,50,51,52,53)'
+    # check if SDO communication is still working
+    for i in range(10):
+        _ = xmc_device.sdo_read(0x1018, 1)
+        assert len(emcy_consumer._pending_emcy_msg) == 0
+    # again mbx_receive() should not raise any further exception
+    xmc_device.mbx_receive()
+    assert len(emcy_consumer._pending_emcy_msg) == 0

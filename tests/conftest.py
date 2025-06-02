@@ -1,8 +1,8 @@
 
 
 import time
-import collections
 import threading
+import dataclasses
 import pytest
 
 import pysoem
@@ -13,12 +13,19 @@ def pytest_addoption(parser):
 
 
 class PySoemTestEnvironment:
-    """Setup a basic pysoem test fixture that is needed for most of tests"""
+    """Setup a basic pysoem test fixture that is needed for most of the tests"""
 
     BECKHOFF_VENDOR_ID = 0x0002
     EK1100_PRODUCT_CODE = 0x044c2c52
     EL3002_PRODUCT_CODE = 0x0bba3052
     EL1259_PRODUCT_CODE = 0x04eb3052
+
+    @dataclasses.dataclass
+    class SlaveSet:
+        name: str
+        vendor_id: int
+        product_code: int
+        config_func: None
 
     def __init__(self, ifname):
         self._is_overlapping_enabled = None
@@ -32,11 +39,16 @@ class PySoemTestEnvironment:
         self._ch_thread_stop_event = threading.Event()
         self._actual_wkc = 0
 
-        self.SlaveSet = collections.namedtuple('SlaveSet', 'name vendor_id product_code config_func')
-
         self.el3002_config_func = None
         self.el1259_config_func = None
-        self._expected_slave_layout = None
+        self.el1259_setup_func = None
+
+        self._expected_slave_layout = {
+            0: self.SlaveSet('XMC43-Test-Device', 0, 0x12783456, None),
+            1: self.SlaveSet('EK1100', self.BECKHOFF_VENDOR_ID, self.EK1100_PRODUCT_CODE, None),
+            2: self.SlaveSet('EL3002', self.BECKHOFF_VENDOR_ID, self.EL3002_PRODUCT_CODE, None),
+            3: self.SlaveSet('EL1259', self.BECKHOFF_VENDOR_ID, self.EL1259_PRODUCT_CODE, None),
+        }
 
     def config_init(self):
         self._master.open(self._ifname)
@@ -63,17 +75,21 @@ class PySoemTestEnvironment:
     def config_map(self, overlapping_enable=False):
         self._is_overlapping_enabled = overlapping_enable
 
-        self._expected_slave_layout = {
-            0: self.SlaveSet('XMC43-Test-Device', 0, 0x12783456, None),
-            1: self.SlaveSet('EK1100', self.BECKHOFF_VENDOR_ID, self.EK1100_PRODUCT_CODE, None),
-            2: self.SlaveSet('EL3002', self.BECKHOFF_VENDOR_ID, self.EL3002_PRODUCT_CODE, self.el3002_config_func),
-            3: self.SlaveSet('EL1259', self.BECKHOFF_VENDOR_ID, self.EL1259_PRODUCT_CODE, self.el1259_config_func),
-        }
+        # pull in the latest config_function into the _expected_slave_layout
+        for device in self._expected_slave_layout.values():
+            if device.name == 'EL3002':
+                device.config_func = self.el3002_config_func
+            elif device.name == 'EL1259':
+                device.config_func = self.el1259_config_func
+
         self._master.config_dc()
         for i, slave in enumerate(self._master.slaves):
             assert slave.man == self._expected_slave_layout[i].vendor_id
             assert slave.id == self._expected_slave_layout[i].product_code
             slave.config_func = self._expected_slave_layout[i].config_func
+            # use the setup_func instead of the config_func
+            if self._expected_slave_layout[i].name == 'EL1259' and self.el1259_setup_func is not None:
+                slave.setup_func = self.el1259_setup_func
             slave.is_lost = False
 
         if self._is_overlapping_enabled:
@@ -183,7 +199,11 @@ class PySoemTestEnvironment:
 
 
 @pytest.fixture
-def pysoem_env(request):
-    env = PySoemTestEnvironment(request.config.getoption('--ifname'))
+def ifname(request):
+    return request.config.getoption('--ifname')
+
+@pytest.fixture
+def pysoem_env(ifname):
+    env = PySoemTestEnvironment(ifname)
     yield env
     env.teardown()

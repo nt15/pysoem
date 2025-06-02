@@ -28,7 +28,6 @@ Linux
 ^^^^^
 
 * Python 3
-* GCC (installed on your machine)
 * Python scripts that use PySOEM must be executed under administrator privileges
 
 Windows
@@ -38,6 +37,11 @@ Windows
 * `Npcap <https://nmap.org/npcap/>`_ [*]_ or `WinPcap <https://www.winpcap.org/>`_
 
 .. [*] Make sure you check "Install Npcap in WinPcap API-compatible Mode" during the install
+
+macOS (new with PySOEM 1.1.5)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+* Python 3
 
 Installation
 ------------
@@ -71,6 +75,55 @@ Using `this pysoem chat room on gitter <https://gitter.im/pysoem/pysoem>`_ is on
 Changes
 -------
 
+v1.1.11
+^^^^^^^
+* Adds No-GIL support.
+
+  * Per global setting ``pysoem.settings.always_release_gil``.
+  * Per Master instance attribute ``always_release_gil``.
+  * Per function argument ``release_gil``.
+
+v1.1.10
+^^^^^^^
+* Adds ``pysoem.settings.timeouts`` to configure low-level timeouts at run-time.
+
+v1.1.9
+^^^^^^^
+* Adds protection against closed network interface connection.
+
+v1.1.8
+^^^^^^^
+* Fixes null pointer issues when reading not initialized properties ``config_func`` and ``setup_func``.
+
+v1.1.7
+^^^^^^^
+* Adds ``add_emergency_callback()`` to allow a better handling of emergency messages.
+* Improves auto-completion.
+
+v1.1.6
+^^^^^^^
+* Adds working counter check on SDO read and write.
+* Fixes issues with ``config_init()`` when it's called multiple times.
+
+v1.1.5
+^^^^^^^
+* Adds support for redundancy mode, ``master.open()`` provides now an optional second parameter for the redundancy port.
+
+v1.1.4
+^^^^^^^
+* Fixes Cython compiling issues.
+
+v1.1.3
+^^^^^^^
+* Adds function ``_disable_complete_access()`` that stops config_map() from using "complete access" for SDO requests.
+
+v1.1.0
+^^^^^^^
+* Changed the data type for the ``name`` attribute of SDO info CdefCoeObject and CdefCoeObjectEntry, they are of type bytes now instead of a regular Python 3 string.
+* Also changed the ``desc`` attribute of the ``find_adapters()`` list elements to ``bytes``.
+* Introduces the ``open()`` context manager function.
+* Adds the ``setup_func`` that will maybe later replace the ``config_func``.
+
 v1.0.8
 ^^^^^^^
 * Version bump only to re-upload to PyPI with windows-wheel for Python 3.11
@@ -102,7 +155,7 @@ v1.0.2
 * Licence change to MIT licence
 * Introduces configurable timeouts for SDO read and SDO write
 * Improved API docs
-  
+
 v1.0.1
 ^^^^^^^
 * API change: remove the size parameter for ``foe_write``
