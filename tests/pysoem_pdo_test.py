@@ -4,7 +4,7 @@ import time
 import struct
 import pytest
 
-import pysoem
+import pysoemdanfoss
 
 
 class El1259ConfigFunction:

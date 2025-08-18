@@ -11,7 +11,7 @@ import struct
 import time
 import collections
 
-import pysoem
+import pysoemdanfoss
 
 
 class MinimalExample:
@@ -22,7 +22,7 @@ class MinimalExample:
 
     def __init__(self, ifname):
         self._ifname = ifname
-        self._master = pysoem.Master()
+        self._master = pysoemdanfoss.Master()
         SlaveSet = collections.namedtuple(
             'SlaveSet', 'slave_name product_code config_func')
         self._expected_slave_mapping = {0: SlaveSet('EK1100', self.EK1100_PRODUCT_CODE, None),
@@ -56,26 +56,26 @@ class MinimalExample:
             self._master.config_map()
 
             # wait 50 ms for all slaves to reach SAFE_OP state
-            if self._master.state_check(pysoem.SAFEOP_STATE, 50000) != pysoem.SAFEOP_STATE:
+            if self._master.state_check(pysoemdanfoss.SAFEOP_STATE, 50000) != pysoemdanfoss.SAFEOP_STATE:
                 self._master.read_state()
                 for slave in self._master.slaves:
-                    if not slave.state == pysoem.SAFEOP_STATE:
+                    if not slave.state == pysoemdanfoss.SAFEOP_STATE:
                         print('{} did not reach SAFEOP state'.format(slave.name))
                         print('al status code {} ({})'.format(hex(slave.al_status),
-                                                              pysoem.al_status_code_to_string(slave.al_status)))
+                                                              pysoemdanfoss.al_status_code_to_string(slave.al_status)))
                 raise Exception('not all slaves reached SAFEOP state')
 
-            self._master.state = pysoem.OP_STATE
+            self._master.state = pysoemdanfoss.OP_STATE
             self._master.write_state()
 
-            self._master.state_check(pysoem.OP_STATE, 50000)
-            if self._master.state != pysoem.OP_STATE:
+            self._master.state_check(pysoemdanfoss.OP_STATE, 50000)
+            if self._master.state != pysoemdanfoss.OP_STATE:
                 self._master.read_state()
                 for slave in self._master.slaves:
-                    if not slave.state == pysoem.OP_STATE:
+                    if not slave.state == pysoemdanfoss.OP_STATE:
                         print('{} did not reach OP state'.format(slave.name))
                         print('al status code {} ({})'.format(hex(slave.al_status),
-                                                              pysoem.al_status_code_to_string(slave.al_status)))
+                                                              pysoemdanfoss.al_status_code_to_string(slave.al_status)))
                 raise Exception('not all slaves reached OP state')
 
             try:
@@ -97,7 +97,7 @@ class MinimalExample:
                 # ctrl-C abort handling
                 print('stopped')
 
-            self._master.state = pysoem.INIT_STATE
+            self._master.state = pysoemdanfoss.INIT_STATE
             # request INIT state for all slaves
             self._master.write_state()
             self._master.close()

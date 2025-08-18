@@ -85,12 +85,12 @@ ext = '.pyx' if USE_CYTHON else '.c'
 
 extensions = [
     Extension(
-        'pysoem.pysoem',
-        ['src/pysoem/pysoem'+ext] + soem_sources,
+        'pysoemdanfoss.pysoem',
+        ['src/pysoemdanfoss/pysoem'+ext] + soem_sources,
         define_macros=soem_macros,
         libraries=soem_libs,
         library_dirs=soem_lib_dirs,
-        include_dirs=['./pysoem'] + soem_inc_dirs
+        include_dirs=['./pysoemdanfoss'] + soem_inc_dirs
     )
 ]
 
@@ -98,8 +98,8 @@ if USE_CYTHON:
     from Cython.Build import cythonize
     extensions = cythonize(extensions, compiler_directives={"language_level": "2"})
 
-setup(name='pysoem-nt15',
-      version=find_version("src", "pysoem", "__init__.py"),
+setup(name='pysoemdanfoss',
+      version=find_version("src", "pysoemdanfoss", "__init__.py"),
       description='Cython wrapper for the SOEM Library',
       author='Benjamin Partzsch',
       author_email='benjamin_partzsch@web.de',
@@ -107,7 +107,7 @@ setup(name='pysoem-nt15',
       license='MIT',
       long_description=readme(),
       ext_modules=extensions,
-      packages=['pysoem'],
+      packages=['pysoemdanfoss'],
       package_dir={"": "src"},
       project_urls={
         'Documentation': 'https://pysoem.readthedocs.io',

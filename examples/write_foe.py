@@ -1,11 +1,11 @@
 
 import sys
 
-import pysoem
+import pysoemdanfoss
 
 
 def write_file_to_first_slave(ifname, file_path):
-    master = pysoem.Master()
+    master = pysoemdanfoss.Master()
 
     master.open(ifname)
 

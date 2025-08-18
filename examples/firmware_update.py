@@ -8,7 +8,7 @@ import argparse
 import logging
 import struct
 
-import pysoem
+import pysoemdanfoss
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def argument_parsing(cmd_line_args):
 def main(cmd_line_args):
     script_args = argument_parsing(cmd_line_args)
 
-    master = pysoem.Master()
+    master = pysoemdanfoss.Master()
     master.open(script_args.interface_name)
 
     logger.info('Enumerate devices in the network..')
@@ -45,15 +45,15 @@ def main(cmd_line_args):
     device = master.slaves[script_args.device_position-1]
 
     logger.info('Request Init state for the target device in position %d.' % script_args.device_position)
-    device.state = pysoem.INIT_STATE
+    device.state = pysoemdanfoss.INIT_STATE
     device.write_state()
-    device.state_check(pysoem.INIT_STATE, 3_000_000)
-    if device.state != pysoem.INIT_STATE:
+    device.state_check(pysoemdanfoss.INIT_STATE, 3_000_000)
+    if device.state != pysoemdanfoss.INIT_STATE:
         raise FirmwareUpdateError('The device did not go into Init state!')
 
-    boot_rx_mbx = device.eeprom_read(pysoem.SiiOffset.BOOT_RX_MBX)
+    boot_rx_mbx = device.eeprom_read(pysoemdanfoss.SiiOffset.BOOT_RX_MBX)
     rx_mbx_addr, rx_mbx_len = struct.unpack('HH', boot_rx_mbx)
-    boot_tx_mbx = device.eeprom_read(pysoem.SiiOffset.BOOT_TX_MBX)
+    boot_tx_mbx = device.eeprom_read(pysoemdanfoss.SiiOffset.BOOT_TX_MBX)
     tx_mbx_addr, tx_mbx_len = struct.unpack('HH', boot_tx_mbx)
     logger.info('Update SM0: {Address: 0x%4.4x; Length: %4d}' % (rx_mbx_addr, rx_mbx_len))
     device.amend_mbx(mailbox='out', start_address=rx_mbx_addr, size=rx_mbx_len)
@@ -61,10 +61,10 @@ def main(cmd_line_args):
     device.amend_mbx(mailbox='in', start_address=tx_mbx_addr, size=tx_mbx_len)
 
     logger.info('Request Boot state for the device.')
-    device.state = pysoem.BOOT_STATE
+    device.state = pysoemdanfoss.BOOT_STATE
     device.write_state()
-    device.state_check(pysoem.BOOT_STATE, 3_000_000)
-    if device.state != pysoem.BOOT_STATE:
+    device.state_check(pysoemdanfoss.BOOT_STATE, 3_000_000)
+    if device.state != pysoemdanfoss.BOOT_STATE:
         raise FirmwareUpdateError('The device did not go into Boot state!')
 
     logger.info('Send file to the device using FoE write.')
@@ -75,7 +75,7 @@ def main(cmd_line_args):
     logger.info('Download completed.')
 
     logger.info('Request Init state for the device.')
-    device.state = pysoem.INIT_STATE
+    device.state = pysoemdanfoss.INIT_STATE
     device.write_state()
 
     master.close()

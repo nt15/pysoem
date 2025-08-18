@@ -1,11 +1,11 @@
 """Prints all the SDO info of every slave that supports the SDO info feature"""
 
 import sys
-import pysoem
+import pysoemdanfoss
 
 
 def read_sdo_info(ifname):
-    master = pysoem.Master()
+    master = pysoemdanfoss.Master()
     
     master.open(ifname)
     
@@ -14,7 +14,7 @@ def read_sdo_info(ifname):
         for slave in master.slaves:
             try:
                 od = slave.od
-            except pysoem.SdoInfoError:
+            except pysoemdanfoss.SdoInfoError:
                 print('no SDO info for {}'.format(slave.name))
             else:
                 print(slave.name)

@@ -1,7 +1,7 @@
 
 import struct
 import pytest
-import pysoem
+import pysoemdanfoss
 
 
 class EmergencyConsumer:
@@ -42,13 +42,13 @@ def test_sdo_read(el1259):
 
 def test_access_not_existing_object(el1259):
     # read
-    with pytest.raises(pysoem.SdoError) as excinfo:
+    with pytest.raises(pysoemdanfoss.SdoError) as excinfo:
         el1259.sdo_read(0x1111, 0, 1)
     assert excinfo.value.abort_code == 0x06020000
     assert excinfo.value.desc == 'The object does not exist in the object directory'
 
     # write
-    with pytest.raises(pysoem.SdoError) as excinfo:
+    with pytest.raises(pysoemdanfoss.SdoError) as excinfo:
         el1259.sdo_write(0x1111, 0, bytes(4))
     assert excinfo.value.abort_code == 0x06020000
     assert excinfo.value.desc == 'The object does not exist in the object directory'
@@ -56,7 +56,7 @@ def test_access_not_existing_object(el1259):
 
 def test_write_a_ro_object(el1259):
 
-    with pytest.raises(pysoem.SdoError) as excinfo:
+    with pytest.raises(pysoemdanfoss.SdoError) as excinfo:
         el1259.sdo_write(0x1008, 0, b'test')
 
     assert excinfo.value.abort_code == 0x08000021
@@ -90,7 +90,7 @@ def test_device_name(el1259):
 
 
 def test_read_buffer_to_small(el1259):
-    with pytest.raises(pysoem.PacketError) as excinfo:
+    with pytest.raises(pysoemdanfoss.PacketError) as excinfo:
         el1259.sdo_read(0x1008, 0, 3).decode('utf-8')
     assert 4 == excinfo.value.slave_pos
     assert 3 == excinfo.value.error_code
@@ -99,7 +99,7 @@ def test_read_buffer_to_small(el1259):
 
 def test_write_to_1c1x_while_in_safeop(el1259):
     for index in [0x1c12, 0x1c13]:
-        with pytest.raises(pysoem.SdoError) as excinfo:
+        with pytest.raises(pysoemdanfoss.SdoError) as excinfo:
             el1259.sdo_write(index, 0, bytes(1))
         assert excinfo.value.abort_code == 0x08000022
         assert excinfo.value.desc == 'Data cannot be transferred or stored to the application because of the present device state'
@@ -141,7 +141,7 @@ def test_sdo_info_var(el1259):
 
     assert b'Device type' == obj_0x1000.name
     assert obj_0x1000.object_code == 7
-    assert obj_0x1000.data_type == pysoem.ECT_UNSIGNED32
+    assert obj_0x1000.data_type == pysoemdanfoss.ECT_UNSIGNED32
     assert obj_0x1000.bit_length == 32
     assert obj_0x1000.obj_access == 0x0007
 
@@ -155,7 +155,7 @@ def test_sdo_info_rec(el1259):
 
     entry_vendor_id = obj_0x1018.entries[1]
     assert entry_vendor_id.name == b'Vendor ID'
-    assert entry_vendor_id.data_type == pysoem.ECT_UNSIGNED32
+    assert entry_vendor_id.data_type == pysoemdanfoss.ECT_UNSIGNED32
     assert entry_vendor_id.bit_length == 32
     assert entry_vendor_id.obj_access == 0x0007
 
@@ -172,7 +172,7 @@ def test_coe_emergency_legacy(xmc_device, mode):
     xmc_device.sdo_write(0x8001, 1, bytes(4))
     # .. so ether an mbx_receive() or sdo_read() will reveal the emergency message.
     with pytest.warns(FutureWarning) as record:
-        with pytest.raises(pysoem.Emergency) as excinfo:
+        with pytest.raises(pysoemdanfoss.Emergency) as excinfo:
             if mode == 'mbx_receive':
                 xmc_device.mbx_receive()
             elif mode == 'sdo_read':

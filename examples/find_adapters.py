@@ -1,9 +1,9 @@
 """Prints name and description of available network adapters."""
 
-import pysoem
+import pysoemdanfoss
 
 
-adapters = pysoem.find_adapters()
+adapters = pysoemdanfoss.find_adapters()
 
 for i, adapter in enumerate(adapters):
     print('Adapter {}'.format(i))

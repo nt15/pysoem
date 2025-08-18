@@ -15,8 +15,8 @@ import os
 on_rtd = os.environ.get('READTHEDOCS') == 'True'
 
 if on_rtd:
-    import pysoem
-    release = pysoem.__version__
+    import pysoemdanfoss
+    release = pysoemdanfoss.__version__
 else:
     import sys
     sys.path.insert(0, os.path.abspath('../../'))

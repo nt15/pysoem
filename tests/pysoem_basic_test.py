@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-import pysoem
+import pysoemdanfoss
 
 BECKHOFF_VENDOR_ID = 0x0002
 EK1100_PRODUCT_CODE = 0x044C2C52
@@ -19,32 +19,32 @@ class Device:
 
 @pytest.fixture
 def revert_global_settings():
-    old_timeout_ret = pysoem.settings.timeouts.ret
-    old_timeout_safe = pysoem.settings.timeouts.safe
-    old_timeout_eeprom = pysoem.settings.timeouts.eeprom
-    old_timeout_tx_mailbox = pysoem.settings.timeouts.tx_mailbox
-    old_timeout_rx_mailbox = pysoem.settings.timeouts.rx_mailbox
-    old_timeout_state = pysoem.settings.timeouts.state
-    old_release_gil = pysoem.settings.always_release_gil
+    old_timeout_ret = pysoemdanfoss.settings.timeouts.ret
+    old_timeout_safe = pysoemdanfoss.settings.timeouts.safe
+    old_timeout_eeprom = pysoemdanfoss.settings.timeouts.eeprom
+    old_timeout_tx_mailbox = pysoemdanfoss.settings.timeouts.tx_mailbox
+    old_timeout_rx_mailbox = pysoemdanfoss.settings.timeouts.rx_mailbox
+    old_timeout_state = pysoemdanfoss.settings.timeouts.state
+    old_release_gil = pysoemdanfoss.settings.always_release_gil
 
     yield None
 
-    pysoem.settings.timeouts.ret = old_timeout_ret
-    pysoem.settings.timeouts.safe = old_timeout_safe
-    pysoem.settings.timeouts.eeprom = old_timeout_eeprom
-    pysoem.settings.timeouts.tx_mailbox = old_timeout_tx_mailbox
-    pysoem.settings.timeouts.rx_mailbox = old_timeout_rx_mailbox
-    pysoem.settings.timeouts.state = old_timeout_state
-    pysoem.settings.always_release_gil = old_release_gil
+    pysoemdanfoss.settings.timeouts.ret = old_timeout_ret
+    pysoemdanfoss.settings.timeouts.safe = old_timeout_safe
+    pysoemdanfoss.settings.timeouts.eeprom = old_timeout_eeprom
+    pysoemdanfoss.settings.timeouts.tx_mailbox = old_timeout_tx_mailbox
+    pysoemdanfoss.settings.timeouts.rx_mailbox = old_timeout_rx_mailbox
+    pysoemdanfoss.settings.timeouts.state = old_timeout_state
+    pysoemdanfoss.settings.always_release_gil = old_release_gil
 
 
 
 def test_version():
-    assert isinstance(pysoem.__version__, str)
+    assert isinstance(pysoemdanfoss.__version__, str)
 
 
 def test_find_adapters():
-    pysoem.find_adapters()
+    pysoemdanfoss.find_adapters()
 
 
 def test_config_function_exception(pysoem_env):
@@ -66,7 +66,7 @@ def test_config_function_exception(pysoem_env):
 
 def test_master_context_manager(ifname):
     """Quick check if the open() function context manager works as expected."""
-    with pysoem.open(ifname) as master:
+    with pysoemdanfoss.open(ifname) as master:
         if master.config_init() > 0:
             expected_slave_layout = {
                 0: Device("XMC43-Test-Device", 0, 0x12783456),
@@ -113,56 +113,56 @@ def test_call_config_init_twice(pysoem_env):
 
 def test_closed_interface_master(ifname):
     """Quick check if the open() function context manager works as expected."""
-    with pysoem.open(ifname) as master:
+    with pysoemdanfoss.open(ifname) as master:
         if not master.config_init() > 0:
             pytest.fail()
 
-    with pytest.raises(pysoem.NetworkInterfaceNotOpenError) as exec_info:
+    with pytest.raises(pysoemdanfoss.NetworkInterfaceNotOpenError) as exec_info:
         master.send_processdata()
 
 
 def test_closed_interface_slave(ifname):
     """Quick check if the open() function context manager works as expected."""
-    with pysoem.open(ifname) as master:
+    with pysoemdanfoss.open(ifname) as master:
         if master.config_init() > 0:
             slaves = master.slaves
 
-    with pytest.raises(pysoem.NetworkInterfaceNotOpenError) as exec_info:
+    with pytest.raises(pysoemdanfoss.NetworkInterfaceNotOpenError) as exec_info:
         slaves[0].sdo_read(0x1018, 1)
 
 
 def test_tune_timeouts(revert_global_settings):
-    assert pysoem.settings.timeouts.ret == 2_000
-    pysoem.settings.timeouts.ret = 5_000
-    assert pysoem.settings.timeouts.ret == 5_000
+    assert pysoemdanfoss.settings.timeouts.ret == 2_000
+    pysoemdanfoss.settings.timeouts.ret = 5_000
+    assert pysoemdanfoss.settings.timeouts.ret == 5_000
 
-    assert pysoem.settings.timeouts.safe == 20_000
-    pysoem.settings.timeouts.safe = 70_000
-    assert pysoem.settings.timeouts.safe == 70_000
+    assert pysoemdanfoss.settings.timeouts.safe == 20_000
+    pysoemdanfoss.settings.timeouts.safe = 70_000
+    assert pysoemdanfoss.settings.timeouts.safe == 70_000
 
-    assert pysoem.settings.timeouts.eeprom == 20_000
-    pysoem.settings.timeouts.eeprom = 30_000
-    assert pysoem.settings.timeouts.eeprom == 30_000
+    assert pysoemdanfoss.settings.timeouts.eeprom == 20_000
+    pysoemdanfoss.settings.timeouts.eeprom = 30_000
+    assert pysoemdanfoss.settings.timeouts.eeprom == 30_000
 
-    assert pysoem.settings.timeouts.tx_mailbox == 20_000
-    pysoem.settings.timeouts.tx_mailbox = 90_000
-    assert pysoem.settings.timeouts.tx_mailbox == 90_000
+    assert pysoemdanfoss.settings.timeouts.tx_mailbox == 20_000
+    pysoemdanfoss.settings.timeouts.tx_mailbox = 90_000
+    assert pysoemdanfoss.settings.timeouts.tx_mailbox == 90_000
 
-    assert pysoem.settings.timeouts.rx_mailbox == 700_000
-    pysoem.settings.timeouts.rx_mailbox = 900_000
-    assert pysoem.settings.timeouts.rx_mailbox == 900_000
+    assert pysoemdanfoss.settings.timeouts.rx_mailbox == 700_000
+    pysoemdanfoss.settings.timeouts.rx_mailbox = 900_000
+    assert pysoemdanfoss.settings.timeouts.rx_mailbox == 900_000
 
-    assert pysoem.settings.timeouts.state == 2_000_000
-    pysoem.settings.timeouts.state = 5_000_000
-    assert pysoem.settings.timeouts.state == 5_000_000
+    assert pysoemdanfoss.settings.timeouts.state == 2_000_000
+    pysoemdanfoss.settings.timeouts.state = 5_000_000
+    assert pysoemdanfoss.settings.timeouts.state == 5_000_000
 
 
 def test_release_gil(revert_global_settings):
-    assert pysoem.settings.always_release_gil == 0
-    pysoem.settings.always_release_gil = True
-    assert pysoem.settings.always_release_gil == 1
+    assert pysoemdanfoss.settings.always_release_gil == 0
+    pysoemdanfoss.settings.always_release_gil = True
+    assert pysoemdanfoss.settings.always_release_gil == 1
 
-    master = pysoem.Master()
+    master = pysoemdanfoss.Master()
     assert master.always_release_gil == 1
     assert master.check_release_gil(None) == 1
     assert master.check_release_gil(True) == 1
@@ -170,12 +170,12 @@ def test_release_gil(revert_global_settings):
 
     master.always_release_gil = False
     assert master.always_release_gil == 0
-    assert pysoem.settings.always_release_gil == 1
+    assert pysoemdanfoss.settings.always_release_gil == 1
     assert master.check_release_gil(None) == 0
     assert master.check_release_gil(True) == 1
     assert master.check_release_gil(False) == 0
 
     # New master would be created with pysoem.settings.always_release_gil value
-    new_master = pysoem.Master()
+    new_master = pysoemdanfoss.Master()
     assert new_master.always_release_gil == 1
     assert master.always_release_gil == 0

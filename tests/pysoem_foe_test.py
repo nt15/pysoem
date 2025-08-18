@@ -1,7 +1,7 @@
 
 import os
 import pytest
-import pysoem
+import pysoemdanfoss
 
 
 test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -28,14 +28,14 @@ def test_foe_fails(pysoem_env):
     test_slave = pysoem_env.get_device_without_foe()
 
     # expect foe READ to fail
-    with pytest.raises(pysoem.MailboxError) as excinfo:
+    with pytest.raises(pysoemdanfoss.MailboxError) as excinfo:
         test_slave.foe_read('test.bin', 0, 8192)
 
     assert excinfo.value.error_code == 2
     assert excinfo.value.desc == 'The mailbox protocol is not supported'
 
     # expect foe WRITE to fail
-    with pytest.raises(pysoem.MailboxError) as excinfo:
+    with pytest.raises(pysoemdanfoss.MailboxError) as excinfo:
         test_slave.foe_write('test.bin', 0, bytes(32))
 
     assert excinfo.value.error_code == 2

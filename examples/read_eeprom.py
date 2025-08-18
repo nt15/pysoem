@@ -1,11 +1,11 @@
 """Prints name and description of available network adapters."""
 
 import sys
-import pysoem
+import pysoemdanfoss
 
 
 def read_eeprom_of_first_slave(ifname):
-    master = pysoem.Master()
+    master = pysoemdanfoss.Master()
     
     master.open(ifname)
     

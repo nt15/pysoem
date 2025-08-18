@@ -5,7 +5,7 @@ import threading
 import dataclasses
 import pytest
 
-import pysoem
+import pysoemdanfoss
 
 
 def pytest_addoption(parser):
@@ -30,7 +30,7 @@ class PySoemTestEnvironment:
     def __init__(self, ifname):
         self._is_overlapping_enabled = None
         self._ifname = ifname
-        self._master = pysoem.Master()
+        self._master = pysoemdanfoss.Master()
         self._master.in_op = False
         self._master.do_check_state = False
         self._proc_thread_handle = None
@@ -55,8 +55,8 @@ class PySoemTestEnvironment:
         assert self._master.config_init(False) > 0
 
     def go_to_preop_state(self):
-        self._master.state_check(pysoem.INIT_STATE, 50000)
-        assert self._master.state == pysoem.SAFEOP_STATE
+        self._master.state_check(pysoemdanfoss.INIT_STATE, 50000)
+        assert self._master.state == pysoemdanfoss.SAFEOP_STATE
 
         self._proc_thread_handle = threading.Thread(target=self._processdata_thread)
         self._proc_thread_handle.start()
@@ -65,8 +65,8 @@ class PySoemTestEnvironment:
 
         self._master.write_state()
         for _ in range(400):
-            self._master.state_check(pysoem.OP_STATE, 50000)
-            if self._master.state == pysoem.OP_STATE:
+            self._master.state_check(pysoemdanfoss.OP_STATE, 50000)
+            if self._master.state == pysoemdanfoss.OP_STATE:
                 all_slaves_reached_op_state = True
                 break
         assert 'all_slaves_reached_op_state' in locals(), 'could not reach OP state'
@@ -96,22 +96,22 @@ class PySoemTestEnvironment:
             self._master.config_overlap_map()
         else:
             self._master.config_map()
-        assert self._master.state_check(pysoem.SAFEOP_STATE) == pysoem.SAFEOP_STATE
+        assert self._master.state_check(pysoemdanfoss.SAFEOP_STATE) == pysoemdanfoss.SAFEOP_STATE
 
     def go_to_op_state(self):
-        self._master.state_check(pysoem.SAFEOP_STATE, 50000)
-        assert self._master.state == pysoem.SAFEOP_STATE
+        self._master.state_check(pysoemdanfoss.SAFEOP_STATE, 50000)
+        assert self._master.state == pysoemdanfoss.SAFEOP_STATE
 
         self._proc_thread_handle = threading.Thread(target=self._processdata_thread)
         self._proc_thread_handle.start()
         self._check_thread_handle = threading.Thread(target=self._check_thread)
         self._check_thread_handle.start()
 
-        self._master.state = pysoem.OP_STATE
+        self._master.state = pysoemdanfoss.OP_STATE
         self._master.write_state()
         for _ in range(400):
-            self._master.state_check(pysoem.OP_STATE, 50000)
-            if self._master.state == pysoem.OP_STATE:
+            self._master.state_check(pysoemdanfoss.OP_STATE, 50000)
+            if self._master.state == pysoemdanfoss.OP_STATE:
                 all_slaves_reached_op_state = True
                 break
         assert 'all_slaves_reached_op_state' in locals(), 'could not reach OP state'
@@ -125,7 +125,7 @@ class PySoemTestEnvironment:
         if self._check_thread_handle:
             self._check_thread_handle.join()
 
-        self._master.state = pysoem.INIT_STATE
+        self._master.state = pysoemdanfoss.INIT_STATE
         self._master.write_state()
         self._master.close()
 
@@ -155,27 +155,27 @@ class PySoemTestEnvironment:
 
     @staticmethod
     def _check_slave(slave, pos):
-        if slave.state == (pysoem.SAFEOP_STATE + pysoem.STATE_ERROR):
+        if slave.state == (pysoemdanfoss.SAFEOP_STATE + pysoemdanfoss.STATE_ERROR):
             print(
                 'ERROR : slave {} is in SAFE_OP + ERROR, attempting ack.'.format(pos))
-            slave.state = pysoem.SAFEOP_STATE + pysoem.STATE_ACK
+            slave.state = pysoemdanfoss.SAFEOP_STATE + pysoemdanfoss.STATE_ACK
             slave.write_state()
-        elif slave.state == pysoem.SAFEOP_STATE:
+        elif slave.state == pysoemdanfoss.SAFEOP_STATE:
             print(
                 'WARNING : slave {} is in SAFE_OP, try change to OPERATIONAL.'.format(pos))
-            slave.state = pysoem.OP_STATE
+            slave.state = pysoemdanfoss.OP_STATE
             slave.write_state()
-        elif slave.state > pysoem.NONE_STATE:
+        elif slave.state > pysoemdanfoss.NONE_STATE:
             if slave.reconfig():
                 slave.is_lost = False
                 print('MESSAGE : slave {} reconfigured'.format(pos))
         elif not slave.is_lost:
-            slave.state_check(pysoem.OP_STATE)
-            if slave.state == pysoem.NONE_STATE:
+            slave.state_check(pysoemdanfoss.OP_STATE)
+            if slave.state == pysoemdanfoss.NONE_STATE:
                 slave.is_lost = True
                 print('ERROR : slave {} lost'.format(pos))
         if slave.is_lost:
-            if slave.state == pysoem.NONE_STATE:
+            if slave.state == pysoemdanfoss.NONE_STATE:
                 if slave.recover():
                     slave.is_lost = False
                     print(
@@ -190,7 +190,7 @@ class PySoemTestEnvironment:
                 self._master.do_check_state = False
                 self._master.read_state()
                 for i, slave in enumerate(self._master.slaves):
-                    if slave.state != pysoem.OP_STATE:
+                    if slave.state != pysoemdanfoss.OP_STATE:
                         self._master.do_check_state = True
                         self._check_slave(slave, i)
                 if not self._master.do_check_state:

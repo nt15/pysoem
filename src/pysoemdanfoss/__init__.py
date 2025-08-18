@@ -1,8 +1,8 @@
-__version__ = '1.1.12-dev'
+__version__ = '0.0.4'
 
 
 # Classes:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     Master,
     SdoError,
     Emergency,
@@ -17,7 +17,7 @@ from pysoem.pysoem import (
 )
 
 # State constants:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     NONE_STATE,
     INIT_STATE,
     PREOP_STATE,
@@ -29,7 +29,7 @@ from pysoem.pysoem import (
 )
 
 # ECT constants:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     ECT_REG_WD_DIV,
     ECT_REG_WD_TIME_PDI,
     ECT_REG_WD_TIME_PROCESSDATA,
@@ -45,20 +45,20 @@ from pysoem.pysoem import (
 globals().update(pysoem.ec_datatype.__members__)
 
 # Functions:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     find_adapters,
     open,
     al_status_code_to_string,
 )
 
 # Raw Cdefs:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     CdefMaster,
     CdefSlave,
     CdefCoeObjectEntry,
 )
 
 # Settings:
-from pysoem.pysoem import (
+from pysoemdanfoss.pysoem import (
     settings
 )

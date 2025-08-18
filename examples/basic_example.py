@@ -16,7 +16,7 @@ import typing
 import argparse
 
 
-import pysoem
+import pysoemdanfoss
 
 
 BECKHOFF_VENDOR_ID = 0x0000_0002
@@ -40,7 +40,7 @@ class BasicExample:
         self._pd_thread_stop_event = threading.Event()
         self._ch_thread_stop_event = threading.Event()
         self._actual_wkc = 0
-        self._master = pysoem.Master()
+        self._master = pysoemdanfoss.Master()
         self._master.in_op = False
         self._master.do_check_state = False
         self._expected_slave_layout = {
@@ -134,13 +134,13 @@ class BasicExample:
 
         self._master.config_map()
 
-        if self._master.state_check(pysoem.SAFEOP_STATE, timeout=50_000) != pysoem.SAFEOP_STATE:
+        if self._master.state_check(pysoemdanfoss.SAFEOP_STATE, timeout=50_000) != pysoemdanfoss.SAFEOP_STATE:
             self._master.close()
             raise BasicExampleError("not all slaves reached SAFEOP state")
         
         slave.dc_sync(act=True, sync0_cycle_time=10_000_000)  # time is given in ns -> 10,000,000ns = 10ms
 
-        self._master.state = pysoem.OP_STATE
+        self._master.state = pysoemdanfoss.OP_STATE
 
         check_thread = threading.Thread(target=self._check_thread)
         check_thread.start()
@@ -156,8 +156,8 @@ class BasicExample:
 
         all_slaves_reached_op_state = False
         for i in range(40):
-            self._master.state_check(pysoem.OP_STATE, timeout=50_000)
-            if self._master.state == pysoem.OP_STATE:
+            self._master.state_check(pysoemdanfoss.OP_STATE, timeout=50_000)
+            if self._master.state == pysoemdanfoss.OP_STATE:
                 all_slaves_reached_op_state = True
                 break
 
@@ -168,7 +168,7 @@ class BasicExample:
         self._ch_thread_stop_event.set()
         proc_thread.join()
         check_thread.join()
-        self._master.state = pysoem.INIT_STATE
+        self._master.state = pysoemdanfoss.INIT_STATE
         # request INIT state for all slaves
         self._master.write_state()
         self._master.close()
@@ -178,25 +178,25 @@ class BasicExample:
 
     @staticmethod
     def _check_slave(slave, pos):
-        if slave.state == (pysoem.SAFEOP_STATE + pysoem.STATE_ERROR):
+        if slave.state == (pysoemdanfoss.SAFEOP_STATE + pysoemdanfoss.STATE_ERROR):
             print(f"ERROR : slave {pos} is in SAFE_OP + ERROR, attempting ack.")
-            slave.state = pysoem.SAFEOP_STATE + pysoem.STATE_ACK
+            slave.state = pysoemdanfoss.SAFEOP_STATE + pysoemdanfoss.STATE_ACK
             slave.write_state()
-        elif slave.state == pysoem.SAFEOP_STATE:
+        elif slave.state == pysoemdanfoss.SAFEOP_STATE:
             print(f"WARNING : slave {pos} is in SAFE_OP, try change to OPERATIONAL.")
-            slave.state = pysoem.OP_STATE
+            slave.state = pysoemdanfoss.OP_STATE
             slave.write_state()
-        elif slave.state > pysoem.NONE_STATE:
+        elif slave.state > pysoemdanfoss.NONE_STATE:
             if slave.reconfig():
                 slave.is_lost = False
                 print(f"MESSAGE : slave {pos} reconfigured")
         elif not slave.is_lost:
-            slave.state_check(pysoem.OP_STATE)
-            if slave.state == pysoem.NONE_STATE:
+            slave.state_check(pysoemdanfoss.OP_STATE)
+            if slave.state == pysoemdanfoss.NONE_STATE:
                 slave.is_lost = True
                 print(f"ERROR : slave {pos} lost")
         if slave.is_lost:
-            if slave.state == pysoem.NONE_STATE:
+            if slave.state == pysoemdanfoss.NONE_STATE:
                 if slave.recover():
                     slave.is_lost = False
                     print(f"MESSAGE : slave {pos} recovered")
@@ -210,7 +210,7 @@ class BasicExample:
                 self._master.do_check_state = False
                 self._master.read_state()
                 for i, slave in enumerate(self._master.slaves):
-                    if slave.state != pysoem.OP_STATE:
+                    if slave.state != pysoemdanfoss.OP_STATE:
                         self._master.do_check_state = True
                         BasicExample._check_slave(slave, i)
                 if not self._master.do_check_state:
